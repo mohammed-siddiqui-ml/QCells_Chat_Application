@@ -1,0 +1,49 @@
+# Web Framework
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+pydantic==2.6.1
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.25
+asyncpg==0.29.0
+alembic==1.13.1
+psycopg2-binary==2.9.9
+
+# Redis
+redis==5.0.1
+hiredis==2.3.2
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+bcrypt==4.1.2
+
+# GenAI & LangChain
+langchain==0.1.8
+langchain-openai==0.0.5
+openai==1.12.0
+tiktoken==0.6.0
+
+# Embeddings & Vector Store
+sentence-transformers==2.3.1
+chromadb==0.4.22
+pinecone-client==3.0.3
+
+# Confluence & Integrations
+atlassian-python-api==3.41.10
+httpx==0.26.0
+
+# Utilities
+python-dotenv==1.0.1
+tenacity==8.2.3
+celery==5.3.6
+python-dateutil==2.8.2
+
+# Monitoring & Logging
+structlog==24.1.0
+python-json-logger==2.0.7
+
+# CORS
+fastapi-cors==0.0.6
