@@ -16,6 +16,7 @@ from app.middleware.auth_middleware import (
     require_user,
     allow_anonymous,
 )
+from app.middleware.rate_limiter import RateLimiter, rate_limiter
 
 __all__ = [
     "get_current_user",
@@ -24,4 +25,6 @@ __all__ = [
     "require_admin",
     "require_user",
     "allow_anonymous",
+    "RateLimiter",
+    "rate_limiter",
 ]

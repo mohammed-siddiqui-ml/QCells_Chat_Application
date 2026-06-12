@@ -18,6 +18,7 @@ from app.db.session import engine, Base
 from app.utils.minio_client import minio_client
 from app.utils.redis_client import redis_client
 from app.utils.elasticsearch_client import elasticsearch_client
+from app.middleware.rate_limiter import rate_limiter
 
 # Initialize logging
 setup_logging()
@@ -181,9 +182,13 @@ async def logging_middleware(request: Request, call_next):
     return response
 
 
-# Note: Rate limiting and authentication middleware will be added in subsequent tasks
-# - Rate limiting middleware: task-017
-# - Authentication middleware: task-016
+# Rate Limiting Middleware
+@app.middleware("http")
+async def rate_limiting_middleware(request: Request, call_next):
+    """
+    Middleware for rate limiting requests using token bucket algorithm.
+    """
+    return await rate_limiter(request, call_next)
 
 
 # ============================================================================
