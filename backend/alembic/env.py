@@ -1,7 +1,10 @@
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
+import asyncio
 import sys
 import os
 
@@ -25,8 +28,15 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set sqlalchemy.url from settings
-config.set_main_option('sqlalchemy.url', settings.DATABASE_URL.replace('+asyncpg', ''))
+# Set sqlalchemy.url from settings (environment variable DATABASE_URL)
+# Remove async driver suffix for synchronous migrations
+database_url = settings.DATABASE_URL
+if '+asyncpg' in database_url:
+    database_url = database_url.replace('+asyncpg', '')
+elif '+aiosqlite' in database_url:
+    database_url = database_url.replace('+aiosqlite', '')
+
+config.set_main_option('sqlalchemy.url', database_url)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
@@ -84,7 +94,47 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
 
+def do_run_migrations(connection: Connection) -> None:
+    """Run migrations with the given connection."""
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    """Run migrations in async mode using async engine.
+
+    This is used when the application uses an async database driver.
+    """
+    # Get the database URL and create async engine
+    database_url = settings.DATABASE_URL
+
+    # Create async engine
+    connectable = create_async_engine(
+        database_url,
+        poolclass=pool.NullPool,
+    )
+
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+
+    await connectable.dispose()
+
+
+def run_migrations_online_async() -> None:
+    """Entry point for running migrations with async support."""
+    asyncio.run(run_async_migrations())
+
+
 if context.is_offline_mode():
     run_migrations_offline()
 else:
-    run_migrations_online()
+    # Use async migrations if the database URL contains async driver
+    if '+asyncpg' in settings.DATABASE_URL or '+aiosqlite' in settings.DATABASE_URL:
+        run_migrations_online_async()
+    else:
+        run_migrations_online()
