@@ -33,12 +33,23 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    
+    BCRYPT_ROUNDS: int = 12
+
     # Admin
     ADMIN_EMAIL: str = "admin@example.com"
     ADMIN_PASSWORD: str = "changeme"
+
+    # OAuth2
+    OAUTH2_PROVIDER: str = ""
+    OAUTH2_CLIENT_ID: str = ""
+    OAUTH2_CLIENT_SECRET: str = ""
+    OAUTH2_AUTHORIZATION_ENDPOINT: str = ""
+    OAUTH2_TOKEN_ENDPOINT: str = ""
+    OAUTH2_USERINFO_ENDPOINT: str = ""
+    OAUTH2_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/oauth2/callback"
+    OAUTH2_SCOPES: str = "openid profile email"
     
     # OpenAI
     OPENAI_API_KEY: str

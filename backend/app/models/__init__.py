@@ -5,6 +5,7 @@ from app.models.user import User, UserRole
 from app.models.chat import ChatSession, Message, MessageRole
 from app.models.source import DataSource, SyncLog, SourceType, SyncStatus
 from app.models.document import Document, DocumentChunk
+from app.models.token import RefreshToken
 
 __all__ = [
     # User models
@@ -25,4 +26,7 @@ __all__ = [
     # Document models
     "Document",
     "DocumentChunk",
+
+    # Token models
+    "RefreshToken",
 ]

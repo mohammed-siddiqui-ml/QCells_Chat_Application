@@ -76,6 +76,12 @@ class User(Base):
         back_populates="created_by_user",
         lazy="selectin"
     )
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        "RefreshToken",
+        back_populates="user",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
     
     # Indexes (email already has unique index from unique=True constraint)
     __table_args__ = (
