@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     ELASTICSEARCH_TIMEOUT: int = 30
     ELASTICSEARCH_MAX_RETRIES: int = 3
 
+    # MinIO
+    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_SECURE: bool = False
+    MINIO_BUCKET_NAME: str = "knowledge-base"
+    MINIO_REGION: str = "us-east-1"
+
     # Vector Database
     VECTOR_DB_TYPE: str = "chromadb"
     CHROMA_PERSIST_DIRECTORY: str = "./data/chroma"

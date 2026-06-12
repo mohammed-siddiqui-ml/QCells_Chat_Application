@@ -3,19 +3,42 @@ Main FastAPI application entry point
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+
 from app.core.config import settings
-from app.core.logging import setup_logging
+from app.core.logging import setup_logging, logger
+from app.utils.minio_client import minio_client
 
 # Initialize logging
 setup_logging()
 
-# Create FastAPI app
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager for startup and shutdown events.
+    """
+    # Startup: Initialize MinIO bucket
+    logger.info("Application startup: Initializing MinIO bucket...")
+    bucket_initialized = minio_client.ensure_bucket_exists()
+    if bucket_initialized:
+        logger.info(f"MinIO bucket '{settings.MINIO_BUCKET_NAME}' is ready")
+    else:
+        logger.warning(f"Failed to initialize MinIO bucket '{settings.MINIO_BUCKET_NAME}'")
+
+    yield
+
+    # Shutdown: Cleanup if needed
+    logger.info("Application shutdown")
+
+# Create FastAPI app with lifespan manager
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="GenAI Intelligent Chat-Based Knowledge Retrieval System",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # Configure CORS
