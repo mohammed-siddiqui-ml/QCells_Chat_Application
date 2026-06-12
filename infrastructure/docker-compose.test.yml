@@ -1,0 +1,262 @@
+version: '3.8'
+
+# ============================================================================
+# TEST ENVIRONMENT OVERRIDES
+# ============================================================================
+# This file provides test-optimized configurations for CI/CD with:
+# - Isolated test database
+# - Minimal resource allocation
+# - Test-specific environment variables
+# - Fast startup and teardown
+# - No persistent volumes (clean state for each run)
+#
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.test.yml up
+# ============================================================================
+
+services:
+  # PostgreSQL - Test database with isolated schema
+  postgres:
+    container_name: genai-kb-postgres-test
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-test_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-test_password}
+      POSTGRES_DB: ${POSTGRES_DB:-genai_kb_test}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-test_user}"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Redis - Test cache
+  redis:
+    container_name: genai-kb-redis-test
+    command: redis-server --appendonly no --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_test_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+      start_period: 3s
+
+  # Elasticsearch - Test search engine
+  elasticsearch:
+    container_name: genai-kb-elasticsearch-test
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - cluster.name=genai-kb-test-cluster
+      - node.name=genai-kb-test-node
+      - bootstrap.memory_lock=false
+    volumes:
+      - es_test_data:/usr/share/elasticsearch/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # MinIO - Test object storage
+  minio:
+    container_name: genai-kb-minio-test
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-testuser}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-testpassword}
+    volumes:
+      - minio_test_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # RabbitMQ - Test message broker
+  rabbitmq:
+    container_name: genai-kb-rabbitmq-test
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-test_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-test_password}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/test}
+      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: 256MB
+    volumes:
+      - rabbitmq_test_data:/var/lib/rabbitmq
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Backend - Test configuration
+  backend:
+    container_name: genai-kb-backend-test
+    environment:
+      LOG_LEVEL: DEBUG
+      ENV: test
+      DEBUG: "true"
+      TESTING: "true"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-test_user}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-genai_kb_test}
+      REDIS_URL: redis://redis:6379/0
+
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-test_user}:${RABBITMQ_PASSWORD:-test_password}@rabbitmq:5672/${RABBITMQ_VHOST:-/test}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-testuser}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-testpassword}
+    volumes:
+      - ../backend:/app
+      - backend_test_logs:/app/logs
+      - chroma_test_data:/app/data/chroma
+      - /app/__pycache__
+      - /app/.pytest_cache
+    command: pytest -v --cov=app --cov-report=term-missing --cov-report=html
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "echo", "test"]
+      interval: 30s
+      timeout: 5s
+      retries: 1
+      start_period: 5s
+
+  # Celery Worker - Test configuration
+  celery-worker:
+    container_name: genai-kb-celery-worker-test
+    environment:
+      LOG_LEVEL: DEBUG
+      ENV: test
+      DEBUG: "true"
+      TESTING: "true"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-test_user}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-genai_kb_test}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/3
+      CELERY_RESULT_BACKEND: redis://redis:6379/4
+      ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-testuser}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-testpassword}
+    volumes:
+      - ../backend:/app
+      - chroma_test_data:/app/data/chroma
+      - celery_test_logs:/app/logs/celery
+      - /app/__pycache__
+      - /app/.pytest_cache
+    command: celery -A app.services.ingestion.celery_app worker --loglevel=debug --concurrency=1
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # Celery Beat - Test configuration
+  celery-beat:
+    container_name: genai-kb-celery-beat-test
+    environment:
+      LOG_LEVEL: DEBUG
+      ENV: test
+      DEBUG: "true"
+      TESTING: "true"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-test_user}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-genai_kb_test}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/3
+      CELERY_RESULT_BACKEND: redis://redis:6379/4
+    volumes:
+      - ../backend:/app
+      - celery_beat_test_schedule:/app/celerybeat-schedule
+      - /app/__pycache__
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+
+  # Frontend - Test configuration (minimal)
+  frontend:
+    container_name: genai-kb-frontend-test
+    environment:
+      NODE_ENV: test
+      VITE_API_URL: ${VITE_API_URL:-http://backend:8000}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+# Test-specific volumes (ephemeral, for isolated testing)
+volumes:
+  postgres_test_data:
+    driver: local
+  redis_test_data:
+    driver: local
+  es_test_data:
+    driver: local
+  minio_test_data:
+    driver: local
+  rabbitmq_test_data:
+    driver: local
+  backend_test_logs:
+    driver: local
+  chroma_test_data:
+    driver: local
+  celery_test_logs:
+    driver: local
+  celery_beat_test_schedule:
+    driver: local

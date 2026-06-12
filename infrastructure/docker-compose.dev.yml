@@ -1,0 +1,159 @@
+version: '3.8'
+
+# ============================================================================
+# DEVELOPMENT ENVIRONMENT OVERRIDES
+# ============================================================================
+# This file provides development-optimized configurations with:
+# - Hot-reload enabled via volume mounts
+# - Debug logging (LOG_LEVEL=DEBUG)
+# - Reduced resource limits for local development
+# - Development-friendly settings
+#
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+# ============================================================================
+
+services:
+  # Backend - Development configuration with hot-reload
+  backend:
+    environment:
+      LOG_LEVEL: DEBUG
+      ENV: development
+      DEBUG: "true"
+      RELOAD: "true"
+    volumes:
+      - ../backend:/app
+      - backend_logs:/app/logs
+      - chroma_data:/app/data/chroma
+      - /app/__pycache__
+      - /app/.pytest_cache
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Celery Worker - Development configuration
+  celery-worker:
+    environment:
+      LOG_LEVEL: DEBUG
+      ENV: development
+      DEBUG: "true"
+    volumes:
+      - ../backend:/app
+      - chroma_data:/app/data/chroma
+      - celery_logs:/app/logs/celery
+      - /app/__pycache__
+      - /app/.pytest_cache
+    command: celery -A app.services.ingestion.celery_app worker --loglevel=debug --concurrency=2
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Celery Beat - Development configuration
+  celery-beat:
+    environment:
+      LOG_LEVEL: DEBUG
+      ENV: development
+      DEBUG: "true"
+    volumes:
+      - ../backend:/app
+      - celery_beat_schedule:/app/celerybeat-schedule
+      - /app/__pycache__
+    command: celery -A app.services.ingestion.celery_app beat --loglevel=debug
+
+  # Frontend - Development configuration with hot-reload
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      target: development
+    volumes:
+      - ../frontend/src:/app/src
+      - ../frontend/public:/app/public
+      - ../frontend/index.html:/app/index.html
+      - ../frontend/vite.config.ts:/app/vite.config.ts
+      - ../frontend/tsconfig.json:/app/tsconfig.json
+      - ../frontend/package.json:/app/package.json
+      - /app/node_modules
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    command: npm run dev -- --host 0.0.0.0 --port 80
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # PostgreSQL - Reduced limits for development
+  postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Redis - Reduced limits for development
+  redis:
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # Elasticsearch - Reduced limits for development
+  elasticsearch:
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - cluster.name=genai-kb-cluster
+      - node.name=genai-kb-node
+      - bootstrap.memory_lock=true
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # MinIO - Development configuration
+  minio:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # RabbitMQ - Development configuration
+  rabbitmq:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+volumes:
+  backend_logs:
+  chroma_data:
+  celery_logs:
+  celery_beat_schedule:
