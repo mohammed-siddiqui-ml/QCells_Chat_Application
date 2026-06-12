@@ -321,6 +321,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-genai_kb}
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
       CELERY_BROKER_URL: redis://redis:6379/3
       CELERY_RESULT_BACKEND: redis://redis:6379/4
       ELASTICSEARCH_URL: ${ELASTICSEARCH_URL:-http://elasticsearch:9200}
@@ -332,7 +333,7 @@ services:
       - chroma_data:/app/data/chroma
       - celery_logs:/app/logs/celery
     healthcheck:
-      test: ["CMD", "celery", "-A", "app.services.ingestion.celery_app", "inspect", "ping"]
+      test: ["CMD", "celery", "-A", "app.tasks.celery_app", "inspect", "ping"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -351,9 +352,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       elasticsearch:
         condition: service_healthy
-    command: celery -A app.services.ingestion.celery_app worker --loglevel=info --concurrency=4
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
     networks:
       - genai-network
 
@@ -368,6 +371,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-genai_kb}
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
       CELERY_BROKER_URL: redis://redis:6379/3
       CELERY_RESULT_BACKEND: redis://redis:6379/4
     volumes:
@@ -387,7 +391,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.services.ingestion.celery_app beat --loglevel=info
+      rabbitmq:
+        condition: service_healthy
+    command: celery -A app.tasks.celery_app beat --loglevel=info
     networks:
       - genai-network
 

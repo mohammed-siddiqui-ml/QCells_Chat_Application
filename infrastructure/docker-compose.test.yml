@@ -196,7 +196,7 @@ services:
       - celery_test_logs:/app/logs/celery
       - /app/__pycache__
       - /app/.pytest_cache
-    command: celery -A app.services.ingestion.celery_app worker --loglevel=debug --concurrency=1
+    command: celery -A app.tasks.celery_app worker --loglevel=debug --concurrency=1
     deploy:
       resources:
         limits:

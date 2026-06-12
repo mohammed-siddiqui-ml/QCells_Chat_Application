@@ -64,7 +64,7 @@ services:
     volumes:
       - chroma_data:/app/data/chroma
       - celery_logs:/app/logs/celery
-    command: celery -A app.services.ingestion.celery_app worker --loglevel=info --concurrency=8 --max-tasks-per-child=1000 --prefetch-multiplier=4
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=8 --max-tasks-per-child=1000 --prefetch-multiplier=4
     restart: always
     deploy:
       replicas: 4
@@ -81,7 +81,7 @@ services:
         max_attempts: 3
         window: 120s
     healthcheck:
-      test: ["CMD", "celery", "-A", "app.services.ingestion.celery_app", "inspect", "ping"]
+      test: ["CMD", "celery", "-A", "app.tasks.celery_app", "inspect", "ping"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -95,7 +95,7 @@ services:
       DEBUG: "false"
     volumes:
       - celery_beat_schedule:/app/celerybeat-schedule
-    command: celery -A app.services.ingestion.celery_app beat --loglevel=info
+    command: celery -A app.tasks.celery_app beat --loglevel=info
     restart: always
     deploy:
       resources:

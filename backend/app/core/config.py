@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "json"
     LOG_FILE_PATH: str = "./logs/app.log"
     
+    # RabbitMQ
+    RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
+
     # Celery
     CELERY_BROKER_URL: str = "redis://localhost:6379/3"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/4"

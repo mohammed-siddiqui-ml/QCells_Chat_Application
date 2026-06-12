@@ -48,7 +48,7 @@ services:
       - celery_logs:/app/logs/celery
       - /app/__pycache__
       - /app/.pytest_cache
-    command: celery -A app.services.ingestion.celery_app worker --loglevel=debug --concurrency=2
+    command: celery -A app.tasks.celery_app worker --loglevel=debug --concurrency=2
     deploy:
       resources:
         limits:
@@ -68,7 +68,7 @@ services:
       - ../backend:/app
       - celery_beat_schedule:/app/celerybeat-schedule
       - /app/__pycache__
-    command: celery -A app.services.ingestion.celery_app beat --loglevel=debug
+    command: celery -A app.tasks.celery_app beat --loglevel=debug
 
   # Frontend - Development configuration with hot-reload
   frontend:
