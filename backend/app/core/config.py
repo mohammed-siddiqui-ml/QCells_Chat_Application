@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    ALLOWED_ORIGINS: List[str] = []  # Alternative to CORS_ORIGINS for task-015 compatibility
     CORS_ALLOW_CREDENTIALS: bool = True
     
     # Logging
