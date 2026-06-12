@@ -35,7 +35,17 @@ dist-ssr/
 # Environment variables
 .env
 .env.local
+.env.staging
+.env.production
 .env.*.local
+
+# BUT track these environment templates
+!.env.example
+!backend/.env.example
+!backend/.env.local
+!backend/.env.staging
+!backend/.env.production
+!frontend/.env.example
 
 # Logs
 logs/
