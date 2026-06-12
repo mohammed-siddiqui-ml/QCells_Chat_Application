@@ -47,13 +47,22 @@ class Settings(BaseSettings):
     OPENAI_TEMPERATURE: float = 0.7
     OPENAI_MAX_TOKENS: int = 2000
     
+    # Elasticsearch
+    ELASTICSEARCH_URL: str = "http://localhost:9200"
+    ELASTICSEARCH_USERNAME: str = ""
+    ELASTICSEARCH_PASSWORD: str = ""
+    ELASTICSEARCH_INDEX_PREFIX: str = "genai_kb"
+    ELASTICSEARCH_SSL_VERIFY: bool = True
+    ELASTICSEARCH_TIMEOUT: int = 30
+    ELASTICSEARCH_MAX_RETRIES: int = 3
+
     # Vector Database
     VECTOR_DB_TYPE: str = "chromadb"
     CHROMA_PERSIST_DIRECTORY: str = "./data/chroma"
     PINECONE_API_KEY: str = ""
     PINECONE_ENVIRONMENT: str = ""
     PINECONE_INDEX_NAME: str = "genai-kb-index"
-    
+
     # Confluence
     CONFLUENCE_URL: str = ""
     CONFLUENCE_USERNAME: str = ""
