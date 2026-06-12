@@ -1,0 +1,76 @@
+# Prometheus Configuration for GenAI Knowledge Retrieval System
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'genai-kb'
+    environment: 'development'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093
+
+# Rule files (for alerting rules)
+# rule_files:
+#   - "alert_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Backend API metrics
+  - job_name: 'backend'
+    static_configs:
+      - targets: ['backend:8000']
+        labels:
+          service: 'backend-api'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL metrics (requires postgres_exporter if enabled)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+        labels:
+          service: 'postgresql'
+
+  # Redis metrics (requires redis_exporter if enabled)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: 'redis'
+
+  # Elasticsearch metrics
+  - job_name: 'elasticsearch'
+    static_configs:
+      - targets: ['elasticsearch:9200']
+        labels:
+          service: 'elasticsearch'
+    metrics_path: '/_prometheus/metrics'
+
+  # RabbitMQ metrics
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+        labels:
+          service: 'rabbitmq'
+    metrics_path: '/metrics'
+
+  # MinIO metrics
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+        labels:
+          service: 'minio'
+    metrics_path: '/minio/v2/metrics/cluster'
+    scheme: http
