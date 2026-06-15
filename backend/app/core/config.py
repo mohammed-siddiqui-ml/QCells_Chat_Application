@@ -63,6 +63,15 @@ class Settings(BaseSettings):
     LOCAL_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
     EMBEDDING_CACHE_TTL: int = 86400  # 24 hours in seconds
     EMBEDDING_BATCH_SIZE: int = 32
+
+    # LLM Provider Configuration
+    LLM_PROVIDER: str = "openai"  # "openai" or "ollama"
+
+    # Ollama Configuration
+    OLLAMA_ENABLED: bool = False
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama2"
+    OLLAMA_TIMEOUT: int = 120
     
     # Elasticsearch
     ELASTICSEARCH_URL: str = "http://localhost:9200"

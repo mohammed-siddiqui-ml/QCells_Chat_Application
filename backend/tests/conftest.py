@@ -11,6 +11,12 @@ os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///:memory:'
 os.environ['SECRET_KEY'] = 'test-secret-key-for-testing-only-not-for-production'
 os.environ['OPENAI_API_KEY'] = 'test-openai-api-key-for-testing'
 
+# ⚠️ WSL FIX: Pre-load numpy to avoid "cannot load module more than once per process" error
+try:
+    import numpy as np
+except ImportError:
+    pass
+
 import asyncio
 import pytest
 import pytest_asyncio

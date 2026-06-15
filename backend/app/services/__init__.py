@@ -9,7 +9,15 @@ This package contains service modules for:
 - Hybrid search (semantic + keyword)
 """
 from app.services.auth_service import AuthService, OAuth2Service, AuthenticationError
-from app.services.genai import EmbeddingService, embedding_service, EmbeddingError
+from app.services.genai import (
+    EmbeddingService,
+    embedding_service,
+    EmbeddingError,
+    LLMService,
+    llm_service,
+    LLMError,
+    get_llm_service
+)
 from app.services.search_service import SearchService, search_service
 
 __all__ = [
@@ -19,6 +27,10 @@ __all__ = [
     "EmbeddingService",
     "embedding_service",
     "EmbeddingError",
+    "LLMService",
+    "llm_service",
+    "LLMError",
+    "get_llm_service",
     "SearchService",
     "search_service",
 ]
