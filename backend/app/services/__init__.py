@@ -6,9 +6,11 @@ This package contains service modules for:
 - GenAI and LLM integration
 - Data ingestion and synchronization
 - External integrations (Confluence, Jira, etc.)
+- Hybrid search (semantic + keyword)
 """
 from app.services.auth_service import AuthService, OAuth2Service, AuthenticationError
 from app.services.genai import EmbeddingService, embedding_service, EmbeddingError
+from app.services.search_service import SearchService, search_service
 
 __all__ = [
     "AuthService",
@@ -17,4 +19,6 @@ __all__ = [
     "EmbeddingService",
     "embedding_service",
     "EmbeddingError",
+    "SearchService",
+    "search_service",
 ]

@@ -1,0 +1,916 @@
+"""
+Tests for Hybrid Search Service (task-019)
+
+Test coverage for SearchService including:
+- Semantic search with pgvector
+- Keyword search with Elasticsearch
+- Reciprocal Rank Fusion (RRF) algorithm
+- Parallel execution
+- Source type filtering
+- Top-K result limiting
+- Error handling
+"""
+import pytest
+import asyncio
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from uuid import uuid4
+import numpy as np
+
+from app.services.search_service import SearchService
+from app.models.document import DocumentChunk, Document
+from app.models.source import DataSource, SourceType
+
+
+# ============================================================================
+# Test Fixtures
+# ============================================================================
+
+@pytest.fixture
+def search_service():
+    """Create SearchService instance with default k=60"""
+    return SearchService(rrf_k=60)
+
+
+@pytest.fixture
+def custom_search_service():
+    """Create SearchService instance with custom k=30"""
+    return SearchService(rrf_k=30)
+
+
+@pytest.fixture
+async def sample_user(db_session):
+    """Create a sample user for test data"""
+    from app.models.user import User, UserRole
+    user = User(
+        id=uuid4(),
+        email="test@example.com",
+        password_hash="hashed_password_123",
+        role=UserRole.ADMIN
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+async def sample_data_source(db_session, sample_user):
+    """Create a sample data source"""
+    source = DataSource(
+        id=uuid4(),
+        name="Test Confluence",
+        type=SourceType.CONFLUENCE,
+        config={"url": "https://test.atlassian.net"},
+        created_by=sample_user.id  # ← Fix: Provide required created_by field
+    )
+    db_session.add(source)
+    await db_session.commit()
+    await db_session.refresh(source)
+    return source
+
+
+@pytest.fixture
+async def sample_documents(db_session, sample_data_source):
+    """Create sample documents"""
+    docs = []
+    for i in range(5):
+        doc = Document(
+            id=uuid4(),
+            source_id=sample_data_source.id,
+            external_id=f"DOC-{i}",
+            title=f"Test Document {i}",
+            content=f"This is test document {i} content",
+            url=f"https://example.com/doc-{i}"
+        )
+        db_session.add(doc)
+        docs.append(doc)
+    
+    await db_session.commit()
+    for doc in docs:
+        await db_session.refresh(doc)
+    return docs
+
+
+@pytest.fixture
+def sample_embedding():
+    """Generate a sample 384-dimensional embedding"""
+    return np.random.rand(384).tolist()
+
+
+@pytest.fixture
+async def sample_chunks_with_embeddings(db_session, sample_documents, sample_embedding):
+    """Create document chunks with embeddings"""
+    chunks = []
+    for idx, doc in enumerate(sample_documents):
+        # Create slightly different embeddings for each chunk
+        embedding = np.array(sample_embedding) + (idx * 0.1)
+        embedding = embedding / np.linalg.norm(embedding)  # Normalize
+        
+        chunk = DocumentChunk(
+            id=uuid4(),
+            document_id=doc.id,
+            content=f"This is chunk content for document {idx}",
+            chunk_index=0,
+            embedding=embedding.tolist(),
+            meta={"test": True}
+        )
+        db_session.add(chunk)
+        chunks.append(chunk)
+    
+    await db_session.commit()
+    for chunk in chunks:
+        await db_session.refresh(chunk)
+    return chunks
+
+
+@pytest.fixture
+def mock_elasticsearch():
+    """Mock Elasticsearch client for keyword search tests"""
+    mock_client = Mock()
+    mock_client.keyword_search = AsyncMock(return_value=[])
+    return mock_client
+
+
+# ============================================================================
+# TC-001: Semantic Search with Valid Query
+# ============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.requires_postgres  # Fix: Add PostgreSQL requirement marker
+async def test_semantic_search_valid_query(
+    search_service,
+    db_session,
+    sample_chunks_with_embeddings,
+    sample_embedding
+):
+    """
+    TC-001: Semantic search returns top-k results ordered by cosine similarity.
+
+    Expected:
+    - Returns 3 results (top_k=3)
+    - Results ordered by descending similarity score
+    - Each result contains: chunk_id, content, title, url, source_type, score
+    - Score is between 0.0 and 1.0
+    """
+    # Execute semantic search
+    results = await search_service.semantic_search(
+        db=db_session,
+        query_embedding=sample_embedding,
+        top_k=3
+    )
+
+    # Verify result count
+    assert len(results) == 3, f"Expected 3 results, got {len(results)}"
+
+    # Verify results are ordered by descending score
+    scores = [r["score"] for r in results]
+    assert scores == sorted(scores, reverse=True), "Results not ordered by score"
+
+    # Verify each result has required fields
+    for result in results:
+        assert "chunk_id" in result
+        assert "content" in result
+        assert "title" in result
+        assert "url" in result
+        assert "source_type" in result
+        assert "score" in result
+
+        # Verify score is valid (0.0 to 1.0)
+        assert 0.0 <= result["score"] <= 1.0, f"Score {result['score']} out of range"
+
+        # Verify search type is semantic
+        assert result["search_type"] == "semantic"
+
+
+# ============================================================================
+# TC-002: Semantic Search with Source Type Filter
+# ============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.requires_postgres  # Fix: Add PostgreSQL requirement marker
+async def test_semantic_search_source_type_filter(
+    search_service,
+    db_session,
+    sample_user,  # Fix: Add dependency on sample_user
+    sample_embedding
+):
+    """
+    TC-002: Semantic search filters results by source type.
+
+    Expected:
+    - Returns only results matching the source_type filter
+    - Other source types are excluded
+    """
+    # Create multiple data sources with different types
+    confluence_source = DataSource(
+        id=uuid4(),
+        name="Confluence",
+        type=SourceType.CONFLUENCE,
+        config={},
+        created_by=sample_user.id  # Fix: Add required created_by field
+    )
+    jira_source = DataSource(
+        id=uuid4(),
+        name="Jira",
+        type=SourceType.JIRA,
+        config={},
+        created_by=sample_user.id  # Fix: Add required created_by field
+    )
+    db_session.add(confluence_source)
+    db_session.add(jira_source)
+    await db_session.commit()
+
+    # Create documents from both sources
+    confluence_doc = Document(
+        id=uuid4(),
+        source_id=confluence_source.id,
+        external_id="CONF-1",
+        title="Confluence Doc",
+        content="Content",
+        url="https://confluence.com/1"
+    )
+    jira_doc = Document(
+        id=uuid4(),
+        source_id=jira_source.id,
+        external_id="JIRA-1",
+        title="Jira Doc",
+        content="Content",
+        url="https://jira.com/1"
+    )
+    db_session.add(confluence_doc)
+    db_session.add(jira_doc)
+    await db_session.commit()
+
+    # Create chunks for both documents
+    conf_chunk = DocumentChunk(
+        id=uuid4(),
+        document_id=confluence_doc.id,
+        content="Confluence content",
+        chunk_index=0,
+        embedding=sample_embedding
+    )
+    jira_chunk = DocumentChunk(
+        id=uuid4(),
+        document_id=jira_doc.id,
+        content="Jira content",
+        chunk_index=0,
+        embedding=sample_embedding
+    )
+    db_session.add(conf_chunk)
+    db_session.add(jira_chunk)
+    await db_session.commit()
+
+    # Search with confluence filter
+    results = await search_service.semantic_search(
+        db=db_session,
+        query_embedding=sample_embedding,
+        top_k=10,
+        source_type="confluence"
+    )
+
+    # Verify only confluence results returned
+    assert len(results) >= 1, "Expected at least 1 result"
+    for result in results:
+        assert result["source_type"] == "confluence", f"Expected confluence, got {result['source_type']}"
+
+
+# ============================================================================
+# TC-003: Keyword Search with Multi-Match
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_keyword_search_multi_match(search_service, mock_elasticsearch):
+    """
+    TC-003: Keyword search calls Elasticsearch with correct parameters.
+
+    Expected:
+    - Elasticsearch called with query="test query", size=20
+    - Returns results from Elasticsearch
+    - Results contain chunk_id, content, score
+    """
+    # Mock Elasticsearch response
+    mock_results = [
+        {
+            "chunk_id": str(uuid4()),
+            "content": "Test content 1",
+            "title": "Title 1",
+            "url": "https://example.com/1",
+            "source_type": "confluence",
+            "score": 10.5,
+            "rank": 1
+        },
+        {
+            "chunk_id": str(uuid4()),
+            "content": "Test content 2",
+            "title": "Title 2",
+            "url": "https://example.com/2",
+            "source_type": "jira",
+            "score": 8.3,
+            "rank": 2
+        },
+    ]
+    mock_elasticsearch.keyword_search.return_value = mock_results
+
+    # Patch the elasticsearch_client
+    with patch("app.services.search_service.elasticsearch_client", mock_elasticsearch):
+        results = await search_service.keyword_search(
+            query="test query",
+            top_k=20
+        )
+
+    # Verify Elasticsearch was called with correct parameters
+    mock_elasticsearch.keyword_search.assert_called_once()
+    call_args = mock_elasticsearch.keyword_search.call_args
+    assert call_args.kwargs["query"] == "test query"
+    assert call_args.kwargs["size"] == 20
+
+    # Verify results returned
+    assert len(results) == 2
+    assert results[0]["content"] == "Test content 1"
+    assert results[1]["content"] == "Test content 2"
+
+
+# ============================================================================
+# TC-004: Keyword Search with Source Type Filter
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_keyword_search_source_filter(search_service, mock_elasticsearch):
+    """
+    TC-004: Keyword search applies source type filter to Elasticsearch.
+
+    Expected:
+    - Elasticsearch called with filters parameter
+    - Filter contains {"term": {"source_type": "jira"}}
+    """
+    mock_elasticsearch.keyword_search.return_value = []
+
+    with patch("app.services.search_service.elasticsearch_client", mock_elasticsearch):
+        await search_service.keyword_search(
+            query="test",
+            top_k=20,
+            source_type="jira"
+        )
+
+    # Verify filter was passed
+    call_args = mock_elasticsearch.keyword_search.call_args
+    assert call_args.kwargs["filters"] is not None
+    filters = call_args.kwargs["filters"]
+    # Fix: Correct filter format - SearchService passes dict, ES client converts to list
+    assert filters == {"source_type": "jira"}
+
+
+# ============================================================================
+# TC-005: RRF Algorithm - No Duplicates
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_rrf_no_duplicates(search_service):
+    """
+    TC-005: RRF algorithm correctly combines non-overlapping result sets.
+
+    Expected:
+    - 6 unique results returned
+    - RRF scores calculated with k=60
+    - Results sorted by descending RRF score
+    """
+    # Create semantic results (3 docs, ranks 1-3)
+    semantic_results = [
+        {"chunk_id": "doc1", "content": "Content 1", "title": "Title 1", "url": "url1",
+         "source_type": "confluence", "score": 0.95, "rank": 1},
+        {"chunk_id": "doc2", "content": "Content 2", "title": "Title 2", "url": "url2",
+         "source_type": "confluence", "score": 0.85, "rank": 2},
+        {"chunk_id": "doc3", "content": "Content 3", "title": "Title 3", "url": "url3",
+         "source_type": "confluence", "score": 0.75, "rank": 3},
+    ]
+
+    # Create keyword results (3 different docs, ranks 1-3)
+    keyword_results = [
+        {"chunk_id": "doc4", "content": "Content 4", "title": "Title 4", "url": "url4",
+         "source_type": "jira", "score": 10.0, "rank": 1},
+        {"chunk_id": "doc5", "content": "Content 5", "title": "Title 5", "url": "url5",
+         "source_type": "jira", "score": 8.0, "rank": 2},
+        {"chunk_id": "doc6", "content": "Content 6", "title": "Title 6", "url": "url6",
+         "source_type": "jira", "score": 6.0, "rank": 3},
+    ]
+
+    # Apply RRF fusion
+    fused_results = search_service._reciprocal_rank_fusion(
+        semantic_results=semantic_results,
+        keyword_results=keyword_results
+    )
+
+    # Verify 6 unique results
+    assert len(fused_results) == 6
+
+    # Verify RRF scores (k=60)
+    # Rank 1: 1/(60+1) = 1/61 ≈ 0.0164
+    # Top results should be doc1 and doc4 (both rank 1)
+    doc1 = next((r for r in fused_results if r["chunk_id"] == "doc1"), None)
+    doc4 = next((r for r in fused_results if r["chunk_id"] == "doc4"), None)
+
+    assert doc1 is not None
+    assert doc4 is not None
+
+    expected_score = 1.0 / (60 + 1)
+    assert abs(doc1["rrf_score"] - expected_score) < 0.001
+    assert abs(doc4["rrf_score"] - expected_score) < 0.001
+
+    # Verify results sorted by descending RRF score
+    rrf_scores = [r["rrf_score"] for r in fused_results]
+    assert rrf_scores == sorted(rrf_scores, reverse=True)
+
+
+# ============================================================================
+# TC-006: RRF Algorithm - With Duplicates
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_rrf_with_duplicates(search_service):
+    """
+    TC-006: RRF algorithm handles duplicate results correctly.
+
+    Expected:
+    - 5 unique results (doc1 appears in both lists, counted once)
+    - doc1 RRF score = 1/61 + 1/61 = 2/61 (highest score)
+    - doc1 has both semantic_rank=1 and keyword_rank=1
+    """
+    # Create results with doc1 in both lists
+    semantic_results = [
+        {"chunk_id": "doc1", "content": "Content 1", "title": "Title 1", "url": "url1",
+         "source_type": "confluence", "score": 0.95, "rank": 1},
+        {"chunk_id": "doc2", "content": "Content 2", "title": "Title 2", "url": "url2",
+         "source_type": "confluence", "score": 0.85, "rank": 2},
+        {"chunk_id": "doc3", "content": "Content 3", "title": "Title 3", "url": "url3",
+         "source_type": "confluence", "score": 0.75, "rank": 3},
+    ]
+
+    keyword_results = [
+        {"chunk_id": "doc1", "content": "Content 1", "title": "Title 1", "url": "url1",
+         "source_type": "confluence", "score": 10.0, "rank": 1},  # Duplicate!
+        {"chunk_id": "doc4", "content": "Content 4", "title": "Title 4", "url": "url4",
+         "source_type": "jira", "score": 8.0, "rank": 2},
+        {"chunk_id": "doc5", "content": "Content 5", "title": "Title 5", "url": "url5",
+         "source_type": "jira", "score": 6.0, "rank": 3},
+    ]
+
+    # Apply RRF fusion
+    fused_results = search_service._reciprocal_rank_fusion(
+        semantic_results=semantic_results,
+        keyword_results=keyword_results
+    )
+
+    # Verify 5 unique results (not 6)
+    assert len(fused_results) == 5
+
+    # Find doc1 in fused results
+    doc1 = next((r for r in fused_results if r["chunk_id"] == "doc1"), None)
+    assert doc1 is not None
+
+    # Verify doc1 has the highest RRF score (appears in both lists at rank 1)
+    expected_score = (1.0 / 61) + (1.0 / 61)  # 2/61
+    assert abs(doc1["rrf_score"] - expected_score) < 0.001
+
+    # Verify doc1 is first in results (highest RRF score)
+    assert fused_results[0]["chunk_id"] == "doc1"
+
+    # Verify doc1 has both semantic_rank and keyword_rank
+    assert doc1["semantic_rank"] == 1
+    assert doc1["keyword_rank"] == 1
+
+
+# ============================================================================
+# TC-007: Hybrid Search - Full Integration
+# ============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.requires_postgres  # Fix: Add PostgreSQL requirement marker
+async def test_hybrid_search_full_integration(
+    search_service,
+    db_session,
+    sample_chunks_with_embeddings,
+    mock_elasticsearch
+):
+    """
+    TC-007: Hybrid search executes both searches and fuses results.
+
+    Expected:
+    - Returns up to top_k results
+    - Results contain documents from both semantic and keyword search
+    - Results ordered by RRF score (descending)
+    - Each result has: chunk_id, content, title, url, source_type, scores
+    """
+    # Mock Elasticsearch to return some results
+    mock_es_results = [
+        {"chunk_id": "es-doc-1", "content": "ES content 1", "title": "ES Title 1",
+         "url": "https://es.com/1", "source_type": "jira", "score": 10.0, "rank": 1},
+        {"chunk_id": "es-doc-2", "content": "ES content 2", "title": "ES Title 2",
+         "url": "https://es.com/2", "source_type": "jira", "score": 8.0, "rank": 2},
+    ]
+    mock_elasticsearch.keyword_search.return_value = mock_es_results
+
+    # Create a query embedding
+    query_embedding = np.random.rand(384).tolist()
+
+    # Patch both embedding service and elasticsearch client
+    with patch("app.services.search_service.elasticsearch_client", mock_elasticsearch), \
+         patch("app.services.search_service.embedding_service") as mock_embedding:
+
+        mock_embedding.generate_embeddings = AsyncMock(return_value=[query_embedding])
+
+        # Execute hybrid search
+        results = await search_service.hybrid_search(
+            db=db_session,
+            query="test query",
+            top_k=10
+        )
+
+    # Verify results returned
+    assert len(results) > 0, "Expected at least some results"
+
+    # Verify results have required fields
+    for result in results:
+        assert "chunk_id" in result
+        assert "content" in result
+        assert "title" in result
+        assert "url" in result
+        assert "source_type" in result
+        assert "rrf_score" in result
+
+    # Verify results are sorted by RRF score
+    rrf_scores = [r["rrf_score"] for r in results]
+    assert rrf_scores == sorted(rrf_scores, reverse=True)
+
+
+# ============================================================================
+# TC-008: Hybrid Search - Parallel Execution
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_hybrid_search_parallel_execution(search_service, db_session, mock_elasticsearch):
+    """
+    TC-008: Hybrid search executes semantic and keyword searches in parallel.
+
+    Expected:
+    - Total execution time approximately max(0.2, 0.2) = 0.2s
+    - Not sum(0.2 + 0.2) = 0.4s (proves parallel execution)
+    """
+    import time
+
+    # Create a slow semantic search mock
+    async def slow_semantic(*args, **kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    # Create a slow keyword search mock
+    async def slow_keyword(*args, **kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    # Patch both methods
+    with patch.object(search_service, 'semantic_search', side_effect=slow_semantic), \
+         patch.object(search_service, 'keyword_search', side_effect=slow_keyword), \
+         patch("app.services.search_service.embedding_service") as mock_embedding:
+
+        mock_embedding.generate_embeddings = AsyncMock(return_value=[[0.5] * 384])
+
+        start_time = time.time()
+        await search_service.hybrid_search(db=db_session, query="test", top_k=10)
+        elapsed_time = time.time() - start_time
+
+    # Verify parallel execution (should be ~0.2s, not ~0.4s)
+    # Allow some overhead, so check if < 0.35s
+    assert elapsed_time < 0.35, f"Expected parallel execution (~0.2s), got {elapsed_time}s"
+
+
+# ============================================================================
+# TC-009: Hybrid Search - Top-K Limiting
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_hybrid_search_topk_limiting(search_service, db_session, mock_elasticsearch):
+    """
+    TC-009: Hybrid search limits final results to top_k.
+
+    Expected:
+    - Exactly top_k results returned
+    - semantic_search and keyword_search called with over-fetching (top_k=20)
+    """
+    # Create many mock results
+    mock_es_results = [
+        {"chunk_id": f"es-doc-{i}", "content": f"Content {i}", "title": f"Title {i}",
+         "url": f"https://es.com/{i}", "source_type": "jira", "score": 10.0 - i, "rank": i+1}
+        for i in range(30)
+    ]
+    mock_elasticsearch.keyword_search.return_value = mock_es_results[:20]  # ES returns 20
+
+    # Mock semantic search to return many results
+    async def many_semantic_results(*args, **kwargs):
+        return [
+            {"chunk_id": f"sem-doc-{i}", "content": f"Content {i}", "title": f"Title {i}",
+             "url": f"https://sem.com/{i}", "source_type": "confluence", "score": 0.9 - (i * 0.01), "rank": i+1}
+            for i in range(20)
+        ]
+
+    with patch.object(search_service, 'semantic_search', side_effect=many_semantic_results), \
+         patch("app.services.search_service.elasticsearch_client", mock_elasticsearch), \
+         patch("app.services.search_service.embedding_service") as mock_embedding:
+
+        mock_embedding.generate_embeddings = AsyncMock(return_value=[[0.5] * 384])
+
+        # Request only top 5 results
+        results = await search_service.hybrid_search(db=db_session, query="test", top_k=5)
+
+    # Verify exactly 5 results returned
+    assert len(results) == 5, f"Expected 5 results, got {len(results)}"
+
+
+# ============================================================================
+# TC-010: Hybrid Search - Empty Semantic Results
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_hybrid_search_empty_semantic(search_service, db_session, mock_elasticsearch):
+    """
+    TC-010: Hybrid search handles empty semantic results gracefully.
+
+    Expected:
+    - Returns results from keyword search only
+    - No errors raised
+    """
+    # Empty database (no chunks)
+    # Mock Elasticsearch to return results
+    mock_es_results = [
+        {"chunk_id": "es-doc-1", "content": "ES content", "title": "ES Title",
+         "url": "https://es.com/1", "source_type": "jira", "score": 10.0, "rank": 1},
+    ]
+    mock_elasticsearch.keyword_search.return_value = mock_es_results
+
+    with patch("app.services.search_service.elasticsearch_client", mock_elasticsearch), \
+         patch("app.services.search_service.embedding_service") as mock_embedding:
+
+        mock_embedding.generate_embeddings = AsyncMock(return_value=[[0.5] * 384])
+
+        results = await search_service.hybrid_search(db=db_session, query="test", top_k=10)
+
+    # Should return keyword results only
+    assert len(results) >= 1
+    # All results should have keyword_rank
+    for result in results:
+        assert "keyword_rank" in result
+
+
+# ============================================================================
+# TC-011: Hybrid Search - Empty Keyword Results
+# ============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.requires_postgres  # Fix: Add PostgreSQL requirement marker
+async def test_hybrid_search_empty_keyword(
+    search_service,
+    db_session,
+    sample_chunks_with_embeddings,
+    mock_elasticsearch
+):
+    """
+    TC-011: Hybrid search handles empty keyword results gracefully.
+
+    Expected:
+    - Returns results from semantic search only
+    - No errors raised
+    """
+    # Mock Elasticsearch to return empty results
+    mock_elasticsearch.keyword_search.return_value = []
+
+    with patch("app.services.search_service.elasticsearch_client", mock_elasticsearch), \
+         patch("app.services.search_service.embedding_service") as mock_embedding:
+
+        mock_embedding.generate_embeddings = AsyncMock(return_value=[[0.5] * 384])
+
+        results = await search_service.hybrid_search(db=db_session, query="test", top_k=10)
+
+    # Should return semantic results only
+    assert len(results) >= 1
+    # All results should have semantic_rank
+    for result in results:
+        assert "semantic_rank" in result
+
+
+# ============================================================================
+# TC-012: Hybrid Search - Both Empty
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_hybrid_search_both_empty(search_service, db_session, mock_elasticsearch):
+    """
+    TC-012: Hybrid search handles empty results from both searches.
+
+    Expected:
+    - Returns empty list []
+    - No errors raised
+    """
+    # Empty database and empty Elasticsearch
+    mock_elasticsearch.keyword_search.return_value = []
+
+    with patch("app.services.search_service.elasticsearch_client", mock_elasticsearch), \
+         patch("app.services.search_service.embedding_service") as mock_embedding:
+
+        mock_embedding.generate_embeddings = AsyncMock(return_value=[[0.5] * 384])
+
+        results = await search_service.hybrid_search(db=db_session, query="test", top_k=10)
+
+    # Should return empty list
+    assert results == []
+
+
+# ============================================================================
+# TC-013: Cosine Distance to Similarity Conversion
+# ============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.requires_postgres  # Fix: Add PostgreSQL requirement marker
+async def test_cosine_distance_to_similarity(
+    search_service,
+    db_session,
+    sample_documents
+):
+    """
+    TC-013: Verify cosine distance to similarity score conversion.
+
+    Expected:
+    - Similarity score = 1 - (distance / 2)
+    - Scores range from 0.0 to 1.0
+    - Distance 0.0 (identical) → similarity 1.0
+    - Distance 2.0 (opposite) → similarity 0.0
+    """
+    # Create chunks with controlled embeddings
+    # Identical embedding (distance = 0)
+    identical_embedding = [1.0] + [0.0] * 383
+    chunk1 = DocumentChunk(
+        id=uuid4(),
+        document_id=sample_documents[0].id,
+        content="Identical",
+        chunk_index=0,
+        embedding=identical_embedding
+    )
+
+    # Perpendicular embedding (distance ≈ 1.0 for normalized vectors)
+    perpendicular_embedding = [0.0, 1.0] + [0.0] * 382
+    chunk2 = DocumentChunk(
+        id=uuid4(),
+        document_id=sample_documents[1].id,
+        content="Perpendicular",
+        chunk_index=0,
+        embedding=perpendicular_embedding
+    )
+
+    db_session.add(chunk1)
+    db_session.add(chunk2)
+    await db_session.commit()
+
+    # Search with identical embedding
+    results = await search_service.semantic_search(
+        db=db_session,
+        query_embedding=identical_embedding,
+        top_k=10
+    )
+
+    # Find the identical chunk
+    identical_result = next((r for r in results if r["content"] == "Identical"), None)
+    assert identical_result is not None
+
+    # Verify similarity score is close to 1.0 (distance ≈ 0)
+    assert identical_result["score"] > 0.99, f"Expected score ~1.0, got {identical_result['score']}"
+
+    # Verify all scores are in valid range
+    for result in results:
+        assert 0.0 <= result["score"] <= 1.0, f"Score {result['score']} out of range"
+
+
+# ============================================================================
+# TC-014: RRF k Parameter Configuration
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_rrf_k_parameter(custom_search_service):
+    """
+    TC-014: RRF algorithm uses custom k parameter.
+
+    Expected:
+    - Rank 1 score = 1/31 (not 1/61) when k=30
+    - Rank 2 score = 1/32 (not 1/62) when k=30
+    """
+    semantic_results = [
+        {"chunk_id": "doc1", "content": "Content", "title": "Title", "url": "url",
+         "source_type": "confluence", "score": 0.95, "rank": 1},
+    ]
+    keyword_results = []
+
+    # Apply RRF with k=30
+    fused_results = custom_search_service._reciprocal_rank_fusion(
+        semantic_results=semantic_results,
+        keyword_results=keyword_results
+    )
+
+    # Verify k=30 is used (not default k=60)
+    expected_score = 1.0 / (30 + 1)  # k=30
+    assert abs(fused_results[0]["rrf_score"] - expected_score) < 0.001
+
+
+# ============================================================================
+# TC-015: Source Type Filter - End-to-End
+# ============================================================================
+
+@pytest.mark.asyncio
+@pytest.mark.requires_postgres  # Fix: Add PostgreSQL requirement marker
+async def test_source_type_filter_end_to_end(search_service, db_session, sample_user, mock_elasticsearch):
+    """
+    TC-015: End-to-end test of source type filtering in hybrid search.
+
+    Expected:
+    - All results have source_type="confluence"
+    - Both semantic and keyword searches filtered by source_type
+    """
+    # Create confluence and jira data sources
+    confluence_source = DataSource(
+        id=uuid4(),
+        name="Confluence",
+        type=SourceType.CONFLUENCE,
+        config={},
+        created_by=sample_user.id  # Fix: Add required created_by field
+    )
+    jira_source = DataSource(
+        id=uuid4(),
+        name="Jira",
+        type=SourceType.JIRA,
+        config={},
+        created_by=sample_user.id  # Fix: Add required created_by field
+    )
+    db_session.add(confluence_source)
+    db_session.add(jira_source)
+    await db_session.commit()
+
+    # Create documents from both sources
+    conf_doc = Document(
+        id=uuid4(),
+        source_id=confluence_source.id,
+        external_id="CONF-1",
+        title="Confluence Doc",
+        content="Content",
+        url="https://confluence.com/1"
+    )
+    jira_doc = Document(
+        id=uuid4(),
+        source_id=jira_source.id,
+        external_id="JIRA-1",
+        title="Jira Doc",
+        content="Content",
+        url="https://jira.com/1"
+    )
+    db_session.add(conf_doc)
+    db_session.add(jira_doc)
+    await db_session.commit()
+
+    # Create chunks
+    conf_chunk = DocumentChunk(
+        id=uuid4(),
+        document_id=conf_doc.id,
+        content="Confluence content",
+        chunk_index=0,
+        embedding=[0.5] * 384
+    )
+    jira_chunk = DocumentChunk(
+        id=uuid4(),
+        document_id=jira_doc.id,
+        content="Jira content",
+        chunk_index=0,
+        embedding=[0.5] * 384
+    )
+    db_session.add(conf_chunk)
+    db_session.add(jira_chunk)
+    await db_session.commit()
+
+    # Mock Elasticsearch to return only confluence results
+    mock_es_results = [
+        {"chunk_id": "es-conf-1", "content": "ES confluence", "title": "ES Conf",
+         "url": "https://es.com/1", "source_type": "confluence", "score": 10.0, "rank": 1},
+    ]
+    mock_elasticsearch.keyword_search.return_value = mock_es_results
+
+    with patch("app.services.search_service.elasticsearch_client", mock_elasticsearch), \
+         patch("app.services.search_service.embedding_service") as mock_embedding:
+
+        mock_embedding.generate_embeddings = AsyncMock(return_value=[[0.5] * 384])
+
+        # Execute hybrid search with confluence filter
+        results = await search_service.hybrid_search(
+            db=db_session,
+            query="test",
+            top_k=10,
+            source_type="confluence"
+        )
+
+    # Verify all results are confluence
+    assert len(results) >= 1
+    for result in results:
+        assert result["source_type"] == "confluence", f"Expected confluence, got {result['source_type']}"

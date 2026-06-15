@@ -199,37 +199,3 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "requires_postgres" in item.keywords and not IS_POSTGRES:
             item.add_marker(skip_postgres)
-
-
-@pytest.fixture
-async def test_user(db_session):
-    """Create a test user for tests that need created_by field"""
-    from app.models.user import User, UserRole
-
-    user = User(
-        username="testuser",
-        email="test@example.com",
-        hashed_password="dummy_hash",
-        role=UserRole.USER
-    )
-    db_session.add(user)
-    await db_session.flush()
-    await db_session.refresh(user)
-    return user
-
-
-@pytest.fixture
-def mock_semantic_search(mocker):
-    """Mock semantic search to avoid pgvector <=> operator in SQLite"""
-    from unittest.mock import AsyncMock
-
-    mock = mocker.patch(
-        'app.services.search_service.SearchService._execute_semantic_search',
-        new_callable=AsyncMock
-    )
-    mock.return_value = [
-        {"id": "doc-1", "content": "test result 1", "distance": 0.1},
-        {"id": "doc-2", "content": "test result 2", "distance": 0.2},
-        {"id": "doc-3", "content": "test result 3", "distance": 0.3}
-    ]
-    return mock
