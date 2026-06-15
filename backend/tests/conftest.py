@@ -1,9 +1,19 @@
 """
 Pytest configuration and fixtures for database tests
 """
+# ⚠️ CRITICAL: Set required environment variables BEFORE any app imports
+# This prevents SSL certificate errors when downloading HuggingFace models in WSL
+import os
+
+# Set required environment variables for testing
+os.environ['EMBEDDING_MODEL'] = 'openai'
+os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///:memory:'
+os.environ['SECRET_KEY'] = 'test-secret-key-for-testing-only-not-for-production'
+os.environ['OPENAI_API_KEY'] = 'test-openai-api-key-for-testing'
+
 import asyncio
 import pytest
-import os
+import pytest_asyncio
 import tempfile
 from pathlib import Path
 from typing import AsyncGenerator
@@ -32,7 +42,7 @@ TEST_DB_DIR = Path(tempfile.gettempdir()) / "chatapp_tests"
 TEST_DB_DIR.mkdir(exist_ok=True)
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def engine():
     """Create async engine for tests - fresh for each test"""
     if IS_POSTGRES:
@@ -67,7 +77,7 @@ async def engine():
     # Create all tables
     async with test_engine.begin() as conn:
         # CRITICAL: Use checkfirst=True to prevent "already exists" errors
-        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+        await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=True))
 
     yield test_engine
 
@@ -82,7 +92,7 @@ async def engine():
         db_file.unlink()
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
     """Create a new database session for each test with transaction rollback"""
     async_session = async_sessionmaker(
@@ -98,7 +108,7 @@ async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def clean_db(db_session: AsyncSession):
     """Clean all tables before test"""
     # Since we use transaction rollback, this fixture is not strictly necessary

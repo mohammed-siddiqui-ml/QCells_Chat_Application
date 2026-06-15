@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     OPENAI_TEMPERATURE: float = 0.7
     OPENAI_MAX_TOKENS: int = 2000
+
+    # Embeddings
+    EMBEDDING_MODEL: str = "local"  # "local" or "openai"
+    LOCAL_EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    EMBEDDING_CACHE_TTL: int = 86400  # 24 hours in seconds
+    EMBEDDING_BATCH_SIZE: int = 32
     
     # Elasticsearch
     ELASTICSEARCH_URL: str = "http://localhost:9200"

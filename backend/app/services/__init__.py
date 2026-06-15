@@ -8,9 +8,13 @@ This package contains service modules for:
 - External integrations (Confluence, Jira, etc.)
 """
 from app.services.auth_service import AuthService, OAuth2Service, AuthenticationError
+from app.services.genai import EmbeddingService, embedding_service, EmbeddingError
 
 __all__ = [
     "AuthService",
     "OAuth2Service",
     "AuthenticationError",
+    "EmbeddingService",
+    "embedding_service",
+    "EmbeddingError",
 ]
