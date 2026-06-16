@@ -19,12 +19,8 @@ os.environ['OMP_NUM_THREADS'] = '1'
 
 # ⚠️ WSL FIX: Allow numpy to be imported multiple times per process (pytest issue in WSL)
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 import sys
-# Pre-import numpy to avoid double loading issues
-try:
-    import numpy as np
-except ImportError:
-    pass
 
 import asyncio
 import pytest

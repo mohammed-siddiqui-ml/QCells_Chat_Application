@@ -11,6 +11,14 @@ from app.schemas.auth import (
     TokenClaims,
     LogoutRequest,
 )
+from app.schemas.chat import (
+    CreateSessionRequest,
+    SessionResponse,
+    MessageResponse,
+    SessionHistoryResponse,
+    QueryRequest,
+    QueryResponse,
+)
 
 __all__ = [
     # Auth schemas
@@ -22,4 +30,12 @@ __all__ = [
     "LoginRequest",
     "TokenClaims",
     "LogoutRequest",
+
+    # Chat schemas
+    "CreateSessionRequest",
+    "SessionResponse",
+    "MessageResponse",
+    "SessionHistoryResponse",
+    "QueryRequest",
+    "QueryResponse",
 ]

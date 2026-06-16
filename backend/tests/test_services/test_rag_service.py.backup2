@@ -358,7 +358,7 @@ class TestRAGPipeline:
         async def mock_generate():
             yield "Test"
 
-        rag_service_instance.llm_service.generate_response = mock_generate
+        rag_service_instance.llm_service.generate_response = AsyncMock(return_value=mock_generate())
 
         # Execute pipeline with filter
         query = "Test query"
