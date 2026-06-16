@@ -11,7 +11,16 @@ os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///:memory:'
 os.environ['SECRET_KEY'] = 'test-secret-key-for-testing-only-not-for-production'
 os.environ['OPENAI_API_KEY'] = 'test-openai-api-key-for-testing'
 
-# ⚠️ WSL FIX: Pre-load numpy to avoid "cannot load module more than once per process" error
+# ⚠️ WSL FIX: Disable numpy multithreading to avoid module loading errors
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+os.environ['OMP_NUM_THREADS'] = '1'
+
+# ⚠️ WSL FIX: Allow numpy to be imported multiple times per process (pytest issue in WSL)
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+import sys
+# Pre-import numpy to avoid double loading issues
 try:
     import numpy as np
 except ImportError:

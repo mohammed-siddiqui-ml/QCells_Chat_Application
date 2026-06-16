@@ -18,10 +18,10 @@ from tenacity import (
     retry_if_exception_type
 )
 
-from langchain.prompts import ChatPromptTemplate, PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain_community.llms import Ollama
-from langchain.schema import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 import tiktoken
 
 from app.core.config import settings

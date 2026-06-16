@@ -16,7 +16,11 @@ from app.services.genai import (
     LLMService,
     llm_service,
     LLMError,
-    get_llm_service
+    get_llm_service,
+    RAGService,
+    rag_service,
+    RAGError,
+    get_rag_service
 )
 from app.services.search_service import SearchService, search_service
 
@@ -31,6 +35,10 @@ __all__ = [
     "llm_service",
     "LLMError",
     "get_llm_service",
+    "RAGService",
+    "rag_service",
+    "RAGError",
+    "get_rag_service",
     "SearchService",
     "search_service",
 ]
