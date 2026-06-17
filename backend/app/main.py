@@ -439,9 +439,10 @@ async def root() -> Dict[str, str]:
 # ============================================================================
 
 # Import and include routers
-from app.api.routes import chat
+from app.api.routes import chat, auth
 
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 # app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
 # app.include_router(health.router, prefix="/api/v1/health", tags=["health"])
 

@@ -4,6 +4,7 @@ Pytest configuration and fixtures for database tests
 # ⚠️ CRITICAL: Set required environment variables BEFORE any app imports
 # This prevents SSL certificate errors when downloading HuggingFace models in WSL
 import os
+import sys
 
 # Set required environment variables for testing
 os.environ['EMBEDDING_MODEL'] = 'openai'
@@ -20,7 +21,14 @@ os.environ['OMP_NUM_THREADS'] = '1'
 # ⚠️ WSL FIX: Allow numpy to be imported multiple times per process (pytest issue in WSL)
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
-import sys
+# ⚠️ AGGRESSIVE WSL FIX: Pre-import numpy to prevent double-import errors
+# This must happen before any app imports that might trigger numpy loading via pgvector
+try:
+    import numpy as np
+    # Force numpy initialization
+    _ = np.array([1, 2, 3])
+except Exception:
+    pass  # Ignore any errors during pre-import
 
 import asyncio
 import pytest
