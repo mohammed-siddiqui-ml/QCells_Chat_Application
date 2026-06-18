@@ -19,6 +19,14 @@ from app.schemas.chat import (
     QueryRequest,
     QueryResponse,
 )
+from app.schemas.admin import (
+    DataSourceCreate,
+    DataSourceUpdate,
+    DataSourceResponse,
+    DataSourceListResponse,
+    SyncTriggerResponse,
+    DeleteResponse,
+)
 
 __all__ = [
     # Auth schemas
@@ -38,4 +46,12 @@ __all__ = [
     "SessionHistoryResponse",
     "QueryRequest",
     "QueryResponse",
+
+    # Admin schemas
+    "DataSourceCreate",
+    "DataSourceUpdate",
+    "DataSourceResponse",
+    "DataSourceListResponse",
+    "SyncTriggerResponse",
+    "DeleteResponse",
 ]

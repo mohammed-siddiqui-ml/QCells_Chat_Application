@@ -6,62 +6,31 @@ Pytest configuration and fixtures for database tests
 import os
 import sys
 
-# ⚠️ CRITICAL: Mock external service clients BEFORE any app imports
-# This prevents the app from trying to connect to Redis, Elasticsearch, MinIO during test collection
-from unittest.mock import MagicMock, AsyncMock
-
-# Mock Redis client module
-mock_redis = MagicMock()
-mock_redis.RedisClient = MagicMock
-mock_redis.redis_client = MagicMock()
-mock_redis.redis_client.client = MagicMock()
-sys.modules['app.utils.redis_client'] = mock_redis
-
-# Mock Elasticsearch client module
-mock_es = MagicMock()
-mock_es.ElasticsearchClient = MagicMock
-mock_es.elasticsearch_client = MagicMock()
-sys.modules['app.utils.elasticsearch_client'] = mock_es
-
-# Mock MinIO client module
-mock_minio = MagicMock()
-mock_minio.MinioClient = MagicMock
-mock_minio.minio_client = MagicMock()
-sys.modules['app.utils.minio_client'] = mock_minio
-
 # Set required environment variables for testing
 os.environ['EMBEDDING_MODEL'] = 'openai'
 os.environ['DATABASE_URL'] = 'sqlite+aiosqlite:///:memory:'
 os.environ['SECRET_KEY'] = 'test-secret-key-for-testing-only-not-for-production'
 os.environ['OPENAI_API_KEY'] = 'test-openai-api-key-for-testing'
-# Mock Redis/Elasticsearch/MinIO URLs to prevent connection attempts
-os.environ['REDIS_URL'] = 'redis://localhost:6379/0'
-os.environ['ELASTICSEARCH_URL'] = 'http://localhost:9200'
-os.environ['MINIO_ENDPOINT'] = 'localhost:9000'
 
-# ⚠️ WSL FIX: NumPy double-import workaround
-# Set RTLD_GLOBAL flag BEFORE any numpy imports to avoid "cannot load module more than once" error
+# ⚠️ WSL FIX: Disable numpy multithreading to avoid module loading errors
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+os.environ['OMP_NUM_THREADS'] = '1'
+
+# ⚠️ WSL FIX: Allow numpy to be imported multiple times per process (pytest issue in WSL)
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-os.environ['MKL_THREADING_LAYER'] = 'GNU'
 
-# CRITICAL: Import numpy with proper flags BEFORE any app imports
-# This prevents the "cannot load module more than once" error in WSL
-import ctypes
-try:
-    # Set dlopen flags to RTLD_GLOBAL | RTLD_LAZY | RTLD_DEEPBIND
-    # RTLD_DEEPBIND (0x8) helps prevent symbol conflicts
-    sys.setdlopenflags(os.RTLD_GLOBAL | os.RTLD_LAZY | 0x8)
-except AttributeError:
-    # Windows doesn't have setdlopenflags
-    pass
-
-# Pre-import numpy to establish it as global and prevent double loading
+# ⚠️ AGGRESSIVE WSL FIX: Pre-import numpy to prevent double-import errors
+# This must happen before any app imports that might trigger numpy loading via pgvector
 try:
     import numpy as np
-    # Keep numpy in sys.modules to prevent re-import
-except ImportError:
-    pass
+    # Force numpy initialization
+    _ = np.array([1, 2, 3])
+except Exception:
+    pass  # Ignore any errors during pre-import
 
+import asyncio
 import pytest
 import pytest_asyncio
 import tempfile
@@ -156,49 +125,6 @@ async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
     async with async_session() as session:
         yield session
         await session.rollback()
-
-
-@pytest.fixture(autouse=True)
-def mock_redis_client_fixture(monkeypatch):
-    """
-    Mock Redis client for all tests to prevent rate limiter errors.
-
-    This prevents the error: 'NoneType' object has no attribute 'pipeline'
-    that occurs when Redis client is not available in test environment.
-    """
-    # The actual mocking is done at module level in sys.modules before imports
-    # This fixture just sets up the mock pipeline behavior for rate limiter
-    from unittest.mock import MagicMock, AsyncMock
-
-    # Get the already-mocked redis module
-    redis_module = sys.modules['app.utils.redis_client']
-
-    # Create mock Redis client with pipeline support
-    mock_redis = MagicMock()
-    mock_redis.client = MagicMock()
-
-    # Mock pipeline for rate limiter
-    mock_pipeline = MagicMock()
-    mock_pipeline.execute = AsyncMock(return_value=[None, None])
-    mock_redis.client.pipeline.return_value = mock_pipeline
-
-    # Mock other Redis methods used by rate limiter
-    mock_redis.client.hgetall = AsyncMock(return_value={})
-    mock_redis.client.hset = AsyncMock(return_value=1)
-    mock_redis.client.expire = AsyncMock(return_value=1)
-
-    # Update the module's redis_client attribute
-    redis_module.redis_client = mock_redis
-
-    # Also patch rate_limiter if it's imported
-    try:
-        import app.middleware.rate_limiter
-        monkeypatch.setattr(app.middleware.rate_limiter, 'redis_client', mock_redis)
-    except (ImportError, AttributeError):
-        # If rate_limiter isn't imported yet, that's okay
-        pass
-
-    return mock_redis
 
 
 @pytest_asyncio.fixture
